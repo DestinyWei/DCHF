@@ -12,6 +12,18 @@ import "./Interfaces/IDfrancParameters.sol";
 import "./Interfaces/IStabilityPool.sol";
 import "./Interfaces/ICommunityIssuance.sol";
 
+/*
+ * @notice 管理员合约(管理合约)
+ *
+ * @note 包含的内容如下:
+ *		function setAddresses(address _paramaters, address _stabilityPoolManager,
+							address _borrowerOperationsAddress, address _troveManagerAddress,
+							address _troveManagerHelpersAddress, address _dchfTokenAddress,
+							address _sortedTrovesAddress, address _communityIssuanceAddress) 	初始化设置地址
+ *		function addNewCollateral(address _stabilityPoolProxyAddress,address _chainlinkOracle,
+							address _chainlinkIndex, uint256 assignedToken,
+							uint256 _tokenPerWeekDistributed, uint256 redemptionLockInDay) 		添加新的抵押物,需要授权给CommunityIssuance合约来使用这个function
+ */
 contract AdminContract is Ownable, Initializable {
 	string public constant NAME = "AdminContract";
 
@@ -29,6 +41,11 @@ contract AdminContract is Ownable, Initializable {
 	address dchfTokenAddress;
 	address sortedTrovesAddress;
 
+	/*
+	 * @note 初始化设置地址
+	 * 		 1. 检查合约地址是否不为0地址以及检查调用的合约是否存在
+	 * 		 2. 赋值
+	 */
 	function setAddresses(
 		address _paramaters,
 		address _stabilityPoolManager,
@@ -62,6 +79,9 @@ contract AdminContract is Ownable, Initializable {
 	}
 
 	//Needs to approve Community Issuance to use this fonction.
+	/*
+	 * @note 添加新的抵押物,需要授权给CommunityIssuance合约来使用这个function
+	 */
 	function addNewCollateral(
 		address _stabilityPoolProxyAddress,
 		address _chainlinkOracle,
@@ -70,8 +90,9 @@ contract AdminContract is Ownable, Initializable {
 		uint256 _tokenPerWeekDistributed,
 		uint256 redemptionLockInDay
 	) external onlyOwner {
-		address _asset = IStabilityPool(_stabilityPoolProxyAddress).getAssetType();
+		address _asset = IStabilityPool(_stabilityPoolProxyAddress).getAssetType(); // 获取代币类型
 
+		// 判断该collateral是否已添加过
 		require(
 			stabilityPoolManager.unsafeGetAssetStabilityPool(_asset) == address(0),
 			"This collateral already exists"
@@ -80,12 +101,15 @@ contract AdminContract is Ownable, Initializable {
 		dfrancParameters.priceFeed().addOracle(_asset, _chainlinkOracle, _chainlinkIndex);
 		dfrancParameters.setAsDefaultWithRemptionBlock(_asset, redemptionLockInDay);
 
+		// 创建一个对应_asset的Stability Pool
 		stabilityPoolManager.addStabilityPool(_asset, _stabilityPoolProxyAddress);
+		// 将assignedToken数量的资产添加到StabilityPool中
 		communityIssuance.addFundToStabilityPoolFrom(
 			_stabilityPoolProxyAddress,
 			assignedToken,
 			msg.sender
 		);
+		// 设置每周发行的MON代币数量
 		communityIssuance.setWeeklyDfrancDistribution(
 			_stabilityPoolProxyAddress,
 			_tokenPerWeekDistributed
