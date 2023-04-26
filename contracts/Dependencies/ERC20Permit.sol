@@ -59,7 +59,7 @@ abstract contract ERC20Permit is ERC20, IERC2612Permit {
 	constructor() {
 		uint256 chainID;
 		assembly {
-			chainID := chainid()
+			chainID := chainid() // 返回当前网络的链ID
 		}
 
 		DOMAIN_SEPARATOR = keccak256(

@@ -19,18 +19,24 @@ library DfrancMath {
 	 */
 	uint256 internal constant NICR_PRECISION = 1e20;
 
+	/*
+	 * @note 获取两数最小值
+	 */
 	function _min(uint256 _a, uint256 _b) internal pure returns (uint256) {
 		return (_a < _b) ? _a : _b;
 	}
 
+	/*
+	 * @note 获取两数最大值
+	 */
 	function _max(uint256 _a, uint256 _b) internal pure returns (uint256) {
 		return (_a >= _b) ? _a : _b;
 	}
 
 	/*
 	 * Multiply two decimal numbers and use normal rounding rules:
-	 * -round product up if 19'th mantissa digit >= 5
-	 * -round product down if 19'th mantissa digit < 5
+	 * -round product up if 19'th mantissa digit >= 5 如果第19位数字 >= 5 则向上取整
+	 * -round product down if 19'th mantissa digit < 5 如果第19位数字 < 5 则向下取整
 	 *
 	 * Used only inside the exponentiation, _decPow().
 	 */
@@ -87,13 +93,19 @@ library DfrancMath {
 		return decMul(x, y);
 	}
 
+	/*
+	 * @note 获取绝对差值
+	 */
 	function _getAbsoluteDifference(uint256 _a, uint256 _b) internal pure returns (uint256) {
 		return (_a >= _b) ? _a.sub(_b) : _b.sub(_a);
 	}
 
+	/*
+	 * @note 计算NICR(个人名义抵押率)
+	 */
 	function _computeNominalCR(uint256 _coll, uint256 _debt) internal pure returns (uint256) {
 		if (_debt > 0) {
-			return _coll.mul(NICR_PRECISION).div(_debt);
+			return _coll.mul(NICR_PRECISION).div(_debt); // 抵押物 * NICR的单位(1e20) / 债务
 		}
 		// Return the maximal value for uint256 if the Trove has a debt of 0. Represents "infinite" CR.
 		else {
@@ -102,6 +114,9 @@ library DfrancMath {
 		}
 	}
 
+	/*
+	 * @note 计算ICR(个人抵押率)
+	 */
 	function _computeCR(
 		uint256 _coll,
 		uint256 _debt,
@@ -109,7 +124,7 @@ library DfrancMath {
 	) internal pure returns (uint256) {
 		if (_debt > 0) {
 
-			return _coll.mul(_price).div(_debt);
+			return _coll.mul(_price).div(_debt); // 抵押物 * 价格 / 债务
 		}
 		// Return the maximal value for uint256 if the Trove has a debt of 0. Represents "infinite" CR.
 		else {
