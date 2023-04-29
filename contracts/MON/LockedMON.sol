@@ -12,6 +12,23 @@ import "../Dependencies/CheckContract.sol";
 /*
 This contract is reserved for Linear Vesting to the Team members and the Advisors team.
 */
+/*
+ * @notice MON锁定合约(核心合约)
+ *
+ * @note 包含的内容如下:
+ *		modifier entityRuleExists(address _entity) 														检查实体规则是否存在
+ *		function setAddresses(address _monAddress) 														初始化设置地址 1. 检查合约地址是否不为0地址以及检查调用的合约是否存在 2. 赋值
+ *		function addEntityVestingBatch(address[] memory _entities, uint256[] memory _totalSupplies) 	批量添加实体规则
+ *		function addEntityVesting(address _entity, uint256 _totalSupply) 								添加实体规则
+ *		function lowerEntityVesting(address _entity, uint256 newTotalSupply) 							增加实体的总供应量
+ *		function removeEntityVesting(address _entity) 													减少实体的总供应量
+ *		function claimMONToken() 																		认领MON代币
+ *		function sendMONTokenToEntity(address _entity) 													发送MON代币给实体
+ *		function transferUnassignedMON() 																转账未分配的MON代币
+ *		function getClaimableMON(address _entity) 														获取可认领的MON代币数量
+ *		function getUnassignMONTokensAmount() 															获取合约中未分配的MON代币数量
+ *		function isEntityExits(address _entity) 														检查实体是否存在
+ */
 contract LockedMON is Ownable, ReentrancyGuard, CheckContract {
 	using SafeERC20 for IERC20;
 	using SafeMath for uint256;
@@ -35,11 +52,19 @@ contract LockedMON is Ownable, ReentrancyGuard, CheckContract {
 
 	mapping(address => Rule) public entitiesVesting;
 
+	/*
+	 * @note 检查实体规则是否存在
+	 */
 	modifier entityRuleExists(address _entity) {
 		require(entitiesVesting[_entity].createdDate != 0, "Entity doesn't have a Vesting Rule");
 		_;
 	}
 
+	/*
+	 * @note 初始化设置地址
+	 * 		 1. 检查合约地址是否不为0地址以及检查调用的合约是否存在
+	 * 		 2. 赋值
+	 */
 	function setAddresses(address _monAddress) external onlyOwner {
 		require(!isInitialized, "Already Initialized");
 		checkContract(_monAddress);
@@ -48,6 +73,9 @@ contract LockedMON is Ownable, ReentrancyGuard, CheckContract {
 		monToken = IERC20(_monAddress);
 	}
 
+	/*
+	 * @note 批量添加实体规则
+	 */
 	function addEntityVestingBatch(address[] memory _entities, uint256[] memory _totalSupplies)
 		external
 		onlyOwner
@@ -80,6 +108,9 @@ contract LockedMON is Ownable, ReentrancyGuard, CheckContract {
 		monToken.safeTransferFrom(msg.sender, address(this), _sumTotalSupplies);
 	}
 
+	/*
+	 * @note 添加实体规则
+	 */
 	function addEntityVesting(address _entity, uint256 _totalSupply) external onlyOwner {
 		require(address(0) != _entity, "Invalid Address");
 
@@ -98,6 +129,9 @@ contract LockedMON is Ownable, ReentrancyGuard, CheckContract {
 		monToken.safeTransferFrom(msg.sender, address(this), _totalSupply);
 	}
 
+	/*
+	 * @note 增加实体的总供应量
+	 */
 	function lowerEntityVesting(address _entity, uint256 newTotalSupply)
 		external
 		nonReentrant
@@ -115,6 +149,9 @@ contract LockedMON is Ownable, ReentrancyGuard, CheckContract {
 		vestingRule.totalSupply = newTotalSupply;
 	}
 
+	/*
+	 * @note 减少实体的总供应量
+	 */
 	function removeEntityVesting(address _entity)
 		external
 		nonReentrant
@@ -131,10 +168,16 @@ contract LockedMON is Ownable, ReentrancyGuard, CheckContract {
 		delete entitiesVesting[_entity];
 	}
 
+	/*
+	 * @note 认领MON代币
+	 */
 	function claimMONToken() public entityRuleExists(msg.sender) {
 		sendMONTokenToEntity(msg.sender);
 	}
 
+	/*
+	 * @note 发送MON代币给实体
+	 */
 	function sendMONTokenToEntity(address _entity) private {
 		uint256 unclaimedAmount = getClaimableMON(_entity);
 		if (unclaimedAmount == 0) return;
@@ -146,6 +189,9 @@ contract LockedMON is Ownable, ReentrancyGuard, CheckContract {
 		monToken.safeTransfer(_entity, unclaimedAmount);
 	}
 
+	/*
+	 * @note 转账未分配的MON代币
+	 */
 	function transferUnassignedMON() external onlyOwner {
 		uint256 unassignedTokens = getUnassignMONTokensAmount();
 
@@ -154,6 +200,9 @@ contract LockedMON is Ownable, ReentrancyGuard, CheckContract {
 		monToken.safeTransfer(msg.sender, unassignedTokens);
 	}
 
+	/*
+	 * @note 获取可认领的MON代币数量
+	 */
 	function getClaimableMON(address _entity) public view returns (uint256 claimable) {
 		Rule memory entityRule = entitiesVesting[_entity];
 		claimable = 0;
@@ -173,10 +222,16 @@ contract LockedMON is Ownable, ReentrancyGuard, CheckContract {
 		return claimable;
 	}
 
+	/*
+	 * @note 获取合约中未分配的MON代币数量
+	 */
 	function getUnassignMONTokensAmount() public view returns (uint256) {
 		return monToken.balanceOf(address(this)).sub(assignedMONTokens);
 	}
 
+	/*
+	 * @note 检查实体是否存在
+	 */
 	function isEntityExits(address _entity) public view returns (bool) {
 		return entitiesVesting[_entity].createdDate != 0;
 	}
