@@ -9,17 +9,48 @@ import "./Dependencies/BaseMath.sol";
 import "./Dependencies/DfrancMath.sol";
 import "./Dependencies/Initializable.sol";
 
+/*
+ * @notice 喂价合约(预言机)
+ *
+ * @note 包含的内容如下:
+ *		modifier isController() 																			判断调用者是否为合约拥有者或管理员合约地址
+ *		function setAddresses(address _adminContract) 														初始化设置地址 1. 检查合约地址是否不为0地址以及检查调用的合约是否存在 2. 赋值
+ *		function setAdminContract(address _admin) 															设置管理员合约地址
+ *		function addOracle(address _token,address _chainlinkOracle,address _chainlinkIndexOracle) 			添加预言机
+ *		function getDirectPrice(address _asset) 															获取DCHF中_asset的直接价格
+ *		function fetchPrice(address _token) 																获取_token的价格
+ *		function _getIndexedPrice(uint256 _price, uint256 _index) 											获取Indexed价格
+ *		function _getChainlinkResponses(AggregatorV3Interface _chainLinkOracle,
+										AggregatorV3Interface _chainLinkIndexOracle) 						获取Chainlink响应
+ *		function _chainlinkIsBroken(ChainlinkResponse memory _currentResponse,
+									ChainlinkResponse memory _prevResponse) 								检查Chainlink是否故障
+ *		function _badChainlinkResponse(ChainlinkResponse memory _response) 									判断是否为坏的Chainlink响应
+ *		function _chainlinkIsFrozen(ChainlinkResponse memory _response) 									检查Chainlink是否被冻结
+ *		function _chainlinkPriceChangeAboveMax(ChainlinkResponse memory _currentResponse,
+											   ChainlinkResponse memory _prevResponse) 						判断Chainlink价格变化是否超过最大值
+ *		function _scaleChainlinkPriceByDigits(uint256 _price, uint256 _answerDigits) 						缩放Chainlink的价格到DFranc的目标精度
+ *		function _changeStatus(Status _status) 																改变Chainlink状态
+ *		function _storeChainlinkIndex(address _token, ChainlinkResponse memory _chainlinkIndexResponse) 	保存Chainlink下标
+ *		function _storeChainlinkPrice(address _token, ChainlinkResponse memory _chainlinkResponse) 			保存Chainlink价格
+ *		function _storePrice(address _token, uint256 _currentPrice) 										保存价格
+ *		function _storeIndex(address _token, uint256 _currentIndex) 										保存下标
+ *		function _getCurrentChainlinkResponse(AggregatorV3Interface _priceAggregator) 						获取当前Chainlink响应
+ *		function _getPrevChainlinkResponse(AggregatorV3Interface _priceAggregator,
+										   uint80 _currentRoundId, uint8 _currentDecimals) 					获取上一次Chainlink的响应
+ */
 contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFeed {
 	using SafeMath for uint256;
 
 	string public constant NAME = "PriceFeed";
 
-	// Use to convert a price answer to an 18-digit precision uint
+	// Use to convert a price answer to an 18-digit precision uint 用于将价格答案转换为 18 位精度 uint
 	uint256 public constant TARGET_DIGITS = 18;
 
+	// 过期时间
 	uint256 public constant TIMEOUT = 4 hours;
 
 	// Maximum deviation allowed between two consecutive Chainlink oracle prices. 18-digit precision.
+	// 两个连续的Chainlink预言机价格之间允许的最大偏差, 18位精度
 	uint256 public constant MAX_PRICE_DEVIATION_FROM_PREVIOUS_ROUND = 5e17; // 50%
 	uint256 public constant MAX_PRICE_DIFFERENCE_BETWEEN_ORACLES = 5e16; // 5%
 
@@ -32,11 +63,19 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 	mapping(address => uint256) public lastGoodPrice;
 	mapping(address => uint256) public lastGoodIndex;
 
+	/*
+	 * @note 判断调用者是否为合约拥有者或管理员合约地址
+	 */
 	modifier isController() {
 		require(msg.sender == owner() || msg.sender == adminContract, "Invalid Permission");
 		_;
 	}
 
+	/*
+	 * @note 初始化设置地址
+	 * 		 1. 检查合约地址是否不为0地址以及检查调用的合约是否存在
+	 * 		 2. 赋值
+	 */
 	function setAddresses(address _adminContract) external initializer onlyOwner {
 		require(!isInitialized, "Already initialized");
 		checkContract(_adminContract);
@@ -46,12 +85,19 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		status = Status.chainlinkWorking;
 	}
 
+	/*
+	 * @note 设置管理员合约地址
+	 */
 	function setAdminContract(address _admin) external onlyOwner {
 		require(_admin != address(0), "Admin address is zero");
+		// 检查合约地址是否不为0地址以及检查调用的合约是否存在
 		checkContract(_admin);
 		adminContract = _admin;
 	}
 
+	/*
+	 * @note 添加预言机
+	 */
 	function addOracle(
 		address _token,
 		address _chainlinkOracle,
@@ -85,6 +131,9 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		emit RegisteredNewOracle(_token, _chainlinkOracle, _chainlinkIndexOracle);
 	}
 
+	/*
+	 * @note 获取DCHF中_asset的直接价格
+	 */
 	function getDirectPrice(address _asset) public view returns (uint256 _priceAssetInDCHF) {
 		RegisterOracle memory oracle = registeredOracles[_asset];
 		(
@@ -107,6 +156,9 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		_priceAssetInDCHF = scaledChainlinkPrice.mul(1 ether).div(scaledChainlinkIndexPrice);
 	}
 
+	/*
+	 * @note 获取_token的价格
+	 */
 	function fetchPrice(address _token) external override returns (uint256) {
 		RegisterOracle storage oracle = registeredOracles[_token];
 		require(oracle.isRegistered, "Oracle is not registered!");
@@ -175,10 +227,16 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		return _getIndexedPrice(lastTokenGoodPrice, lastTokenGoodIndex);
 	}
 
+	/*
+	 * @note 获取Indexed价格
+	 */
 	function _getIndexedPrice(uint256 _price, uint256 _index) internal pure returns (uint256) {
 		return _price.mul(1 ether).div(_index);
 	}
 
+	/*
+	 * @note 获取Chainlink响应
+	 */
 	function _getChainlinkResponses(
 		AggregatorV3Interface _chainLinkOracle,
 		AggregatorV3Interface _chainLinkIndexOracle
@@ -215,6 +273,9 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		return (currentChainlink, prevChainLink, currentChainlinkIndex, prevChainLinkIndex);
 	}
 
+	/*
+	 * @note 检查Chainlink是否故障
+	 */
 	function _chainlinkIsBroken(
 		ChainlinkResponse memory _currentResponse,
 		ChainlinkResponse memory _prevResponse
@@ -222,6 +283,9 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		return _badChainlinkResponse(_currentResponse) || _badChainlinkResponse(_prevResponse);
 	}
 
+	/*
+	 * @note 判断是否为坏的Chainlink响应
+	 */
 	function _badChainlinkResponse(ChainlinkResponse memory _response)
 		internal
 		view
@@ -243,6 +307,9 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		return false;
 	}
 
+	/*
+	 * @note 检查Chainlink是否被冻结
+	 */
 	function _chainlinkIsFrozen(ChainlinkResponse memory _response)
 		internal
 		view
@@ -251,6 +318,9 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		return block.timestamp.sub(_response.timestamp) > TIMEOUT;
 	}
 
+	/*
+	 * @note 判断Chainlink价格变化是否超过最大值
+	 */
 	function _chainlinkPriceChangeAboveMax(
 		ChainlinkResponse memory _currentResponse,
 		ChainlinkResponse memory _prevResponse
@@ -274,10 +344,13 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		 */
 		uint256 percentDeviation = maxPrice.sub(minPrice).mul(DECIMAL_PRECISION).div(maxPrice);
 
-		// Return true if price has more than doubled, or more than halved.
+		// Return true if price has more than doubled, or more than halved. 如果价格翻了两倍以上或减半以上,则返回 true
 		return percentDeviation > MAX_PRICE_DEVIATION_FROM_PREVIOUS_ROUND;
 	}
 
+	/*
+	 * @note 缩放Chainlink的价格到DFranc的目标精度
+	 */
 	function _scaleChainlinkPriceByDigits(uint256 _price, uint256 _answerDigits)
 		internal
 		pure
@@ -294,11 +367,17 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		return price;
 	}
 
+	/*
+	 * @note 改变Chainlink状态
+	 */
 	function _changeStatus(Status _status) internal {
 		status = _status;
 		emit PriceFeedStatusChanged(_status);
 	}
 
+	/*
+	 * @note 保存Chainlink下标
+	 */
 	function _storeChainlinkIndex(
 		address _token,
 		ChainlinkResponse memory _chainlinkIndexResponse
@@ -312,6 +391,9 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		return scaledChainlinkIndex;
 	}
 
+	/*
+	 * @note 保存Chainlink价格
+	 */
 	function _storeChainlinkPrice(address _token, ChainlinkResponse memory _chainlinkResponse)
 		internal
 		returns (uint256)
@@ -325,11 +407,17 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		return scaledChainlinkPrice;
 	}
 
+	/*
+	 * @note 保存价格
+	 */
 	function _storePrice(address _token, uint256 _currentPrice) internal {
 		lastGoodPrice[_token] = _currentPrice;
 		emit LastGoodPriceUpdated(_token, _currentPrice);
 	}
 
+	/*
+	 * @note 保存下标
+	 */
 	function _storeIndex(address _token, uint256 _currentIndex) internal {
 		lastGoodIndex[_token] = _currentIndex;
 		emit LastGoodIndexUpdated(_token, _currentIndex);
@@ -337,6 +425,9 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 
 	// --- Oracle response wrapper functions ---
 
+	/*
+	 * @note 获取当前Chainlink响应
+	 */
 	function _getCurrentChainlinkResponse(AggregatorV3Interface _priceAggregator)
 		internal
 		view
@@ -365,6 +456,9 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, Initializable, IPriceFee
 		}
 	}
 
+	/*
+	 * @note 获取上一次Chainlink的响应
+	 */
 	function _getPrevChainlinkResponse(
 		AggregatorV3Interface _priceAggregator,
 		uint80 _currentRoundId,
