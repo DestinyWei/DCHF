@@ -8,6 +8,17 @@ import "./Interfaces/ITroveManagerHelpers.sol";
 import "./SortedTroves.sol";
 
 /*  Helper contract for grabbing Trove data for the front end. Not part of the core Dfranc system. */
+/*
+ * @notice 多Trove获取合约(助手合约)
+ *			用于前端抓取Trove数据的助手合约,不是核心Dfranc系统的一部分
+ * @note 包含的内容如下:
+ *		function getMultipleSortedTroves(address _asset,
+					int256 _startIdx, uint256 _count)  					获取多个sortedTrove数据
+ *		function _getMultipleSortedTrovesFromHead(address _asset,
+					uint256 _startIdx, uint256 _count) 					从头开始获取_count个sortedTrove数据
+ *		function _getMultipleSortedTrovesFromTail(address _asset,
+					uint256 _startIdx, uint256 _count)					从末尾开始获取多个sortedTrove数据
+ */
 contract MultiTroveGetter {
 	struct CombinedTroveData {
 		address owner;
@@ -33,6 +44,9 @@ contract MultiTroveGetter {
 		sortedTroves = _sortedTroves;
 	}
 
+	/*
+	 * @note 获取多个sortedTrove数据
+	 */
 	function getMultipleSortedTroves(
 		address _asset,
 		int256 _startIdx,
@@ -51,15 +65,18 @@ contract MultiTroveGetter {
 
 		uint256 sortedTrovesSize = sortedTroves.getSize(_asset);
 
+		// 下标超出sorteTrove的大小
 		if (startIdx >= sortedTrovesSize) {
 			_troves = new CombinedTroveData[](0);
 		} else {
 			uint256 maxCount = sortedTrovesSize - startIdx;
 
+			// 避免获取溢出
 			if (_count > maxCount) {
 				_count = maxCount;
 			}
 
+			// 判断读取顺序(从头到尾/从尾到头)
 			if (descend) {
 				_troves = _getMultipleSortedTrovesFromHead(_asset, startIdx, _count);
 			} else {
@@ -68,13 +85,18 @@ contract MultiTroveGetter {
 		}
 	}
 
+	/*
+	 * @note 从头开始获取_count个sortedTrove数据
+	 */
 	function _getMultipleSortedTrovesFromHead(
 		address _asset,
 		uint256 _startIdx,
 		uint256 _count
 	) internal view returns (CombinedTroveData[] memory _troves) {
+		// 获取sortedTrove列表中的第一个node
 		address currentTroveowner = sortedTroves.getFirst(_asset);
 
+		// 从头移动到想要从sortedTrove列表中获取的第startIdx处的node
 		for (uint256 idx = 0; idx < _startIdx; ++idx) {
 			currentTroveowner = sortedTroves.getNext(_asset, currentTroveowner);
 		}
@@ -100,13 +122,18 @@ contract MultiTroveGetter {
 		}
 	}
 
+	/*
+	 * @note 从末尾开始获取多个sortedTrove数据
+	 */
 	function _getMultipleSortedTrovesFromTail(
 		address _asset,
 		uint256 _startIdx,
 		uint256 _count
 	) internal view returns (CombinedTroveData[] memory _troves) {
+		// 获取sortedTrove列表中的最后一个node
 		address currentTroveowner = sortedTroves.getLast(_asset);
 
+		// 从末尾移动到想要从sortedTrove列表中获取的第startIdx处的node
 		for (uint256 idx = 0; idx < _startIdx; ++idx) {
 			currentTroveowner = sortedTroves.getPrev(_asset, currentTroveowner);
 		}
