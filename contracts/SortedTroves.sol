@@ -11,7 +11,7 @@ import "./Dependencies/CheckContract.sol";
 import "./Dependencies/Initializable.sol";
 
 /*
- * A sorted doubly linked list with nodes sorted in descending order.
+ * A sorted doubly linked list with nodes sorted in descending order. 按NICR从大到小排列
  *
  * Nodes map to active Troves in the system - the ID property is the address of a Trove owner.
  * Nodes are ordered according to their current nominal individual collateral ratio (NICR),
@@ -21,6 +21,7 @@ import "./Dependencies/Initializable.sol";
  *
  * NICRs are computed dynamically at runtime, and not stored on the Node. This is because NICRs of active Troves
  * change dynamically as liquidation events occur.
+ * NICR 在运行时动态计算,不存储在节点上.这是因为活动 Troves 的 NICR 会随着清算事件的发生而动态变化
  *
  * The list relies on the fact that liquidation events preserve ordering: a liquidation decreases the NICRs of all active Troves,
  * but maintains their order. A node inserted based on current NICR will maintain the correct position,
@@ -29,6 +30,7 @@ import "./Dependencies/Initializable.sol";
  *
  * Nodes need only be re-inserted upon a Trove operation - when the owner adds or removes collateral or debt
  * to their position.
+ * 节点只需要在 Trove 操作时重新插入 - 当所有者在其位置添加或删除抵押品或债务时
  *
  * The list is a modification of the following audited SortedDoublyLinkedList:
  * https://github.com/livepeer/protocol/blob/master/contracts/libraries/SortedDoublyLL.sol
@@ -42,6 +44,45 @@ import "./Dependencies/Initializable.sol";
  *   The list relies on the property that ordering by ICR is maintained as the ETH:USD price varies.
  *
  * - Public functions with parameters have been made internal to save gas, and given an external wrapper function for external access
+ */
+/*
+ * @notice Troves排序合约
+ *		根据各个Trove的NICR大小从大到小进行排序(该数据结构为双链表结构)
+ * @note 包含的内容如下:
+ *			function setParams(address _troveManagerAddress,address _troveManagerHelpersAddress,
+							   address _borrowerOperationsAddress) 														初始化设置参数 1. 检查合约地址是否不为0地址以及检查调用的合约是否存在 2. 赋值完成后将拥有者地址删除即该合约没有拥有者
+ *			function insert(address _asset, address _id, uint256 _NICR, address _prevId,
+							address _nextId) 																			插入node到sortedTrove列表
+ *			function _insert(address _asset, ITroveManager _troveManager, ITroveManagerHelpers _troveManagerHelpers,
+							 address _id, uint256 _NICR, address _prevId, address _nextId) 								插入node到sortedTrove列表
+ *			function remove(address _asset, address _id) 																从sortedTrove列表中删除node
+ *			function _remove(address _asset, address _id) 																从sortedTrove列表中删除node
+ *			function reInsert(address _asset, address _id, uint256 _newNICR,
+							  address _prevId, address _nextId) 														根据node的新NICR在新位置重新插入节点
+ *			function contains(address _asset, address _id) 																检查sortedTrove列表中是否含有_id
+ *			function isFull(address _asset) 																			检查sortedTrove列表是否已达最大值
+ *			function isEmpty(address _asset) 																			检查sortedTrove列表是否为空
+ *			function getSize(address _asset) 																			获取sortedTrove列表当前的大小
+ *			function getMaxSize(address _asset) 																		获取sortedTrove列表大小的最大值
+ *			function getFirst(address _asset) 																			获取sortedTrove列表的第一个node(即拥有最大的NICR的node)
+ *			function getLast(address _asset) 																			获取sortedTrove列表的最后一个node(即拥有最小的NICR的node)
+ *			function getNext(address _asset, address _id) 																获取sortedTrove列表的下一个node(拥有更小的NICR的node)
+ *			function getPrev(address _asset, address _id) 																获取sortedTrove列表的上一个node(拥有更大的NICR的node)
+ *			function validInsertPosition(address _asset, uint256 _NICR, address _prevId,
+										 address _nextId) 																检查插入位置是否合法
+ *			function _validInsertPosition(address _asset, ITroveManagerHelpers _troveManagerHelpers,
+										  uint256 _NICR, address _prevId, address _nextId) 								检查插入位置是否合法
+ *			function _descendList(address _asset, ITroveManagerHelpers _troveManagerHelpers,
+								  uint256 _NICR, address _startId) 														降序列表(较大的NICR到较小的NICR)以查找有效的插入位置
+ *			function _ascendList(address _asset, ITroveManagerHelpers _troveManagerHelpers,
+								 uint256 _NICR, address _startId) 														升序列表(较小的NICR到较大的NICR)以查找有效的插入位置
+ *			function findInsertPosition(address _asset, uint256 _NICR, address _prevId,
+										address _nextId) 																根据给定的NICR查找新节点的插入位置
+ *			function _findInsertPosition(address _asset, ITroveManagerHelpers _troveManagerHelpers,
+										 uint256 _NICR, address _prevId, address _nextId) 								根据给定的NICR查找新节点的插入位置
+ *			function _requireCallerIsTroveManager() 																	检查调用者是否为trove管理者合约地址或trove管理者助手合约地址
+ *			function _requireCallerIsBOorTroveM(ITroveManager _troveManager,
+												ITroveManagerHelpers _troveManagerHelpers) 								判断调用者是否为合法的借贷者操作合约或合法的trove管理合约或Stability
  */
 contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	using SafeMath for uint256;
@@ -79,6 +120,11 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 
 	// --- Dependency setters ---
 
+	/*
+	 * @note 初始化设置参数
+	 * 		 1. 检查合约地址是否不为0地址以及检查调用的合约是否存在
+	 * 		 2. 赋值完成后将拥有者地址删除即该合约没有拥有者
+	 */
 	function setParams(
 		address _troveManagerAddress,
 		address _troveManagerHelpersAddress,
@@ -109,7 +155,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	 * @param _prevId Id of previous node for the insert position
 	 * @param _nextId Id of next node for the insert position
 	 */
-
+	/*
+	 * @note 插入node到sortedTrove列表
+	 */
 	function insert(
 		address _asset,
 		address _id,
@@ -131,6 +179,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 		);
 	}
 
+	/*
+	 * @note 插入node到sortedTrove列表
+	 */
 	function _insert(
 		address _asset,
 		ITroveManager _troveManager,
@@ -144,18 +195,19 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 			data[_asset].maxSize = MAX_UINT256;
 		}
 
-		// List must not be full
+		// List must not be full 					列表必须没有达到最大数量
 		require(!isFull(_asset), "SortedTroves: List is full");
-		// List must not already contain node
+		// List must not already contain node 		列表必须没有包含该node
 		require(!contains(_asset, _id), "SortedTroves: List already contains the node");
-		// Node id must not be null
+		// Node id must not be null 				node必须不为空
 		require(_id != address(0), "SortedTroves: Id cannot be zero");
-		// NICR must be non-zero
+		// NICR must be non-zero 					NICR必须不为0
 		require(_NICR > 0, "SortedTroves: NICR must be positive");
 
 		address prevId = _prevId;
 		address nextId = _nextId;
 
+		// 检查插入位置是否合法
 		if (!_validInsertPosition(_asset, _troveManagerHelpers, _NICR, prevId, nextId)) {
 			// Sender's hint was not a valid insert position
 			// Use sender's hint to find a valid insert position
@@ -171,21 +223,21 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 		data[_asset].nodes[_id].exists = true;
 
 		if (prevId == address(0) && nextId == address(0)) {
-			// Insert as head and tail
+			// Insert as head and tail		插入node作为头和尾
 			data[_asset].head = _id;
 			data[_asset].tail = _id;
 		} else if (prevId == address(0)) {
-			// Insert before `prevId` as the head
+			// Insert before `prevId` as the head		在prevId前面插入node作为头部
 			data[_asset].nodes[_id].nextId = data[_asset].head;
 			data[_asset].nodes[data[_asset].head].prevId = _id;
 			data[_asset].head = _id;
 		} else if (nextId == address(0)) {
-			// Insert after `nextId` as the tail
+			// Insert after `nextId` as the tail		在nextId后面插入node作为尾部
 			data[_asset].nodes[_id].prevId = data[_asset].tail;
 			data[_asset].nodes[data[_asset].tail].nextId = _id;
 			data[_asset].tail = _id;
 		} else {
-			// Insert at insert position between `prevId` and `nextId`
+			// Insert at insert position between `prevId` and `nextId`		在prevId和nextId之间插入node
 			data[_asset].nodes[_id].nextId = nextId;
 			data[_asset].nodes[_id].prevId = prevId;
 			data[_asset].nodes[prevId].nextId = _id;
@@ -196,6 +248,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 		emit NodeAdded(_asset, _id, _NICR);
 	}
 
+	/*
+	 * @note 从sortedTrove列表中删除node
+	 */
 	function remove(address _asset, address _id) external override {
 		_requireCallerIsTroveManager();
 		_remove(_asset, _id);
@@ -205,38 +260,41 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	 * @dev Remove a node from the list
 	 * @param _id Node's id
 	 */
+	/*
+	 * @note 从sortedTrove列表中删除node
+	 */
 	function _remove(address _asset, address _id) internal {
-		// List must contain the node
+		// List must contain the node 列表必须包含有node
 		require(contains(_asset, _id), "SortedTroves: List does not contain the id");
 
 		if (data[_asset].size > 1) {
-			// List contains more than a single node
+			// List contains more than a single node 列表包含多个node
 			if (_id == data[_asset].head) {
-				// The removed node is the head
-				// Set head to next node
+				// The removed node is the head  要删除的节点是头部node
+				// Set head to next node 更新头部node
 				data[_asset].head = data[_asset].nodes[_id].nextId;
-				// Set prev pointer of new head to null
+				// Set prev pointer of new head to null 将新的头部node的prev指针清空
 				data[_asset].nodes[data[_asset].head].prevId = address(0);
 			} else if (_id == data[_asset].tail) {
-				// The removed node is the tail
-				// Set tail to previous node
+				// The removed node is the tail 要删除的节点是尾部node
+				// Set tail to previous node 更新尾部node
 				data[_asset].tail = data[_asset].nodes[_id].prevId;
-				// Set next pointer of new tail to null
+				// Set next pointer of new tail to null 将新的尾部node的next指针清空
 				data[_asset].nodes[data[_asset].tail].nextId = address(0);
 			} else {
-				// The removed node is neither the head nor the tail
-				// Set next pointer of previous node to the next node
+				// The removed node is neither the head nor the tail 要删除的节点在头部和尾部之间
+				// Set next pointer of previous node to the next node 设置要删除位置的前一个node的next指针为要删除位置的下一个node
 				data[_asset].nodes[data[_asset].nodes[_id].prevId].nextId = data[_asset]
 					.nodes[_id]
 					.nextId;
-				// Set prev pointer of next node to the previous node
+				// Set prev pointer of next node to the previous node 设置要删除位置的下一个node的prev指针为要删除位置的上一个node
 				data[_asset].nodes[data[_asset].nodes[_id].nextId].prevId = data[_asset]
 					.nodes[_id]
 					.prevId;
 			}
 		} else {
-			// List contains a single node
-			// Set the head and tail to null
+			// List contains a single node 列表只包含一个node
+			// Set the head and tail to null 设置头部和尾部为空
 			data[_asset].head = address(0);
 			data[_asset].tail = address(0);
 		}
@@ -252,6 +310,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	 * @param _newNICR Node's new NICR
 	 * @param _prevId Id of previous node for the new insert position
 	 * @param _nextId Id of next node for the new insert position
+	 */
+	/*
+	 * @note 根据node的新NICR在新位置重新插入节点
 	 */
 	function reInsert(
 		address _asset,
@@ -269,9 +330,10 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 		// NICR must be non-zero
 		require(_newNICR > 0, "SortedTroves: NICR must be positive");
 
-		// Remove node from the list
+		// Remove node from the list 从列表中删除该node
 		_remove(_asset, _id);
 
+		// 重新插入
 		_insert(
 			_asset,
 			troveManagerCached,
@@ -286,12 +348,18 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	/*
 	 * @dev Checks if the list contains a node
 	 */
+	/*
+	 * @note 检查sortedTrove列表中是否含有_id
+	 */
 	function contains(address _asset, address _id) public view override returns (bool) {
 		return data[_asset].nodes[_id].exists;
 	}
 
 	/*
 	 * @dev Checks if the list is full
+	 */
+	/*
+	 * @note 检查sortedTrove列表是否已达最大值
 	 */
 	function isFull(address _asset) public view override returns (bool) {
 		return data[_asset].size == data[_asset].maxSize;
@@ -300,12 +368,18 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	/*
 	 * @dev Checks if the list is empty
 	 */
+	/*
+	 * @note 检查sortedTrove列表是否为空
+	 */
 	function isEmpty(address _asset) public view override returns (bool) {
 		return data[_asset].size == 0;
 	}
 
 	/*
 	 * @dev Returns the current size of the list
+	 */
+	/*
+	 * @note 获取sortedTrove列表当前的大小
 	 */
 	function getSize(address _asset) external view override returns (uint256) {
 		return data[_asset].size;
@@ -314,6 +388,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	/*
 	 * @dev Returns the maximum size of the list
 	 */
+	/*
+	 * @note 获取sortedTrove列表大小的最大值
+	 */
 	function getMaxSize(address _asset) external view override returns (uint256) {
 		return data[_asset].maxSize;
 	}
@@ -321,12 +398,18 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	/*
 	 * @dev Returns the first node in the list (node with the largest NICR)
 	 */
+	/*
+	 * @note 获取sortedTrove列表的第一个node(即拥有最大的NICR的node)
+	 */
 	function getFirst(address _asset) external view override returns (address) {
 		return data[_asset].head;
 	}
 
 	/*
 	 * @dev Returns the last node in the list (node with the smallest NICR)
+	 */
+	/*
+	 * @note 获取sortedTrove列表的最后一个node(即拥有最小的NICR的node)
 	 */
 	function getLast(address _asset) external view override returns (address) {
 		return data[_asset].tail;
@@ -336,6 +419,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	 * @dev Returns the next node (with a smaller NICR) in the list for a given node
 	 * @param _id Node's id
 	 */
+	/*
+	 * @note 获取sortedTrove列表的下一个node(拥有更小的NICR的node)
+	 */
 	function getNext(address _asset, address _id) external view override returns (address) {
 		return data[_asset].nodes[_id].nextId;
 	}
@@ -343,6 +429,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	/*
 	 * @dev Returns the previous node (with a larger NICR) in the list for a given node
 	 * @param _id Node's id
+	 */
+	/*
+	 * @note 获取sortedTrove列表的上一个node(拥有更大的NICR的node)
 	 */
 	function getPrev(address _asset, address _id) external view override returns (address) {
 		return data[_asset].nodes[_id].prevId;
@@ -354,6 +443,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	 * @param _prevId Id of previous node for the insert position
 	 * @param _nextId Id of next node for the insert position
 	 */
+	/*
+	 * @note 检查插入位置是否合法
+	 */
 	function validInsertPosition(
 		address _asset,
 		uint256 _NICR,
@@ -363,6 +455,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 		return _validInsertPosition(_asset, troveManagerHelpers, _NICR, _prevId, _nextId);
 	}
 
+	/*
+	 * @note 检查插入位置是否合法
+	 */
 	function _validInsertPosition(
 		address _asset,
 		ITroveManagerHelpers _troveManagerHelpers,
@@ -397,6 +492,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	 * @param _troveManager TroveManager contract, passed in as param to save SLOAD’s
 	 * @param _NICR Node's NICR
 	 * @param _startId Id of node to start descending the list from
+	 */
+	/*
+	 * @note 降序列表(较大的NICR到较小的NICR)以查找有效的插入位置
 	 */
 	function _descendList(
 		address _asset,
@@ -433,6 +531,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	 * @param _NICR Node's NICR
 	 * @param _startId Id of node to start ascending the list from
 	 */
+	/*
+	 * @note 升序列表(较小的NICR到较大的NICR)以查找有效的插入位置
+	 */
 	function _ascendList(
 		address _asset,
 		ITroveManagerHelpers _troveManagerHelpers,
@@ -468,6 +569,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	 * @param _prevId Id of previous node for the insert position
 	 * @param _nextId Id of next node for the insert position
 	 */
+	/*
+	 * @note 根据给定的NICR查找新节点的插入位置
+	 */
 	function findInsertPosition(
 		address _asset,
 		uint256 _NICR,
@@ -477,6 +581,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 		return _findInsertPosition(_asset, troveManagerHelpers, _NICR, _prevId, _nextId);
 	}
 
+	/*
+	 * @note 根据给定的NICR查找新节点的插入位置
+	 */
 	function _findInsertPosition(
 		address _asset,
 		ITroveManagerHelpers _troveManagerHelpers,
@@ -523,6 +630,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 	// --- 'require' functions ---
 	// add access control
 
+	/*
+	 * @note 检查调用者是否为trove管理者合约地址或trove管理者助手合约地址
+	 */
 	function _requireCallerIsTroveManager() internal view {
 		require(
 			msg.sender == address(troveManager) || msg.sender == address(troveManagerHelpers),
@@ -530,6 +640,9 @@ contract SortedTroves is Ownable, CheckContract, Initializable, ISortedTroves {
 		);
 	}
 
+	/*
+	 * @note 判断调用者是否为合法的借贷者操作合约或合法的trove管理合约或Stability
+	 */
 	function _requireCallerIsBOorTroveM(
 		ITroveManager _troveManager,
 		ITroveManagerHelpers _troveManagerHelpers
