@@ -37,6 +37,28 @@ interface IBorrowerOps {
 	function isContractBorrowerOps() external pure returns (bool);
 }
 
+/*
+ * @notice DCHF代币合约(核心合约)
+ *
+ * @note 包含的内容如下:
+ *		function emergencyStopMinting(address _asset, bool status) 							紧急停止铸造代币
+ *		function mint(address _asset, address _account, uint256 _amount) 					铸造代币
+ *		function burn(address _account, uint256 _amount) 									销毁代币
+ *		function sendToPool(address _sender, address _poolAddress, uint256 _amount) 		_sender将_amount数量的代币发送到pool中
+ *		function returnFromPool(address _poolAddress, address _receiver, uint256 _amount) 	pool将_amount数量的代币发送给_receiver
+ *		function transfer(address recipient, uint256 amount) returns (bool) 				转账amount数量的代币给recipient
+ *		function transferFrom(address sender, address recipient, uint256 amount) 			sender转账amount数量的代币给recipient
+ *		function addTroveManager(address _troveManager) 									添加trove管理合约
+ *		function removeTroveManager(address _troveManager) 									移除trove管理合约
+ *		function addBorrowerOps(address _borrowerOps) 										添加借贷者操作合约
+ *		function removeBorrowerOps(address _borrowerOps) 									移除借贷者操作合约
+ *		function _removeElement(address[] storage _array, address _contract) 				将_contract从_array中删除
+ *		function _requireValidRecipient(address _recipient) 								判断_recipient为合法地址
+ *		function _requireCallerIsBorrowerOperations() 										判断调用者是否为合法的借贷者操作合约
+ *		function _requireCallerIsBOorTroveMorSP() 											判断调用者是否为合法的借贷者操作合约或合法的trove管理合约或Stability Pool
+ *		function _requireCallerIsStabilityPool() 											判断调用者是否为Stability Pool
+ *		function _requireCallerIsTroveMorSP() 												判断调用者是否为合法的trove管理合约或Stability Pool
+ */
 contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 	using SafeMath for uint256;
 
@@ -63,11 +85,17 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 
 	// --- Functions for intra-Dfranc calls ---
 
+	/*
+	 * @note 紧急停止铸造代币
+	 */
 	function emergencyStopMinting(address _asset, bool status) external override onlyOwner {
 		emergencyStopMintingCollateral[_asset] = status;
 		emit EmergencyStopMintingCollateral(_asset, status);
 	}
 
+	/*
+	 * @note 铸造代币
+	 */
 	function mint(
 		address _asset,
 		address _account,
@@ -78,11 +106,17 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 		_mint(_account, _amount);
 	}
 
+	/*
+	 * @note 销毁代币
+	 */
 	function burn(address _account, uint256 _amount) external override {
 		_requireCallerIsBOorTroveMorSP();
 		_burn(_account, _amount);
 	}
 
+	/*
+	 * @note _sender将_amount数量的代币发送到pool中
+	 */
 	function sendToPool(
 		address _sender,
 		address _poolAddress,
@@ -92,6 +126,9 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 		_transfer(_sender, _poolAddress, _amount);
 	}
 
+	/*
+	 * @note pool将_amount数量的代币发送给_receiver
+	 */
 	function returnFromPool(
 		address _poolAddress,
 		address _receiver,
@@ -103,11 +140,17 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 
 	// --- External functions ---
 
+	/*
+	 * @note 转账amount数量的代币给recipient
+	 */
 	function transfer(address recipient, uint256 amount) public override returns (bool) {
 		_requireValidRecipient(recipient);
 		return super.transfer(recipient, amount);
 	}
 
+	/*
+	 * @note sender转账amount数量的代币给recipient
+	 */
 	function transferFrom(
 		address sender,
 		address recipient,
@@ -117,6 +160,9 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 		return super.transferFrom(sender, recipient, amount);
 	}
 
+	/*
+	 * @note 添加trove管理合约
+	 */
 	function addTroveManager(address _troveManager) external override onlyOwner {
 		CheckContract(_troveManager);
 		assert(ITroveManager(_troveManager).isContractTroveManager());
@@ -126,6 +172,9 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 		emit UpdateTroveManagers(troveManagers);
 	}
 
+	/*
+	 * @note 移除trove管理合约
+	 */
 	function removeTroveManager(address _troveManager) external override onlyOwner {
 		require(validTroveManagers[_troveManager], "TroveManager does not exist");
 		delete validTroveManagers[_troveManager];
@@ -133,6 +182,9 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 		emit UpdateTroveManagers(troveManagers);
 	}
 
+	/*
+	 * @note 添加借贷者操作合约
+	 */
 	function addBorrowerOps(address _borrowerOps) external override onlyOwner {
 		CheckContract(_borrowerOps);
 		assert(IBorrowerOps(_borrowerOps).isContractBorrowerOps());
@@ -142,6 +194,9 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 		emit UpdateBorrowerOps(borrowerOps);
 	}
 
+	/*
+	 * @note 移除借贷者操作合约
+	 */
 	function removeBorrowerOps(address _borrowerOps) external override onlyOwner {
 		require(validBorrowerOps[_borrowerOps], "BorrowerOps does not exist");
 		delete validBorrowerOps[_borrowerOps];
@@ -151,6 +206,9 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 
 	// --- Internal functions ---
 
+	/*
+	 * @note 将_contract从_array中删除
+	 */
 	function _removeElement(address[] storage _array, address _contract) internal {
 		for (uint256 i; i < _array.length; i++) {
 			if (_array[i] == _contract) {
@@ -163,6 +221,11 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 
 	// --- 'require' functions ---
 
+	/*
+	 * @note 判断_recipient为合法地址
+	 *		1. 不为0地址或本合约地址
+	 *		2. 不为Stability Pool,合法的trove管理合约,合法的借贷者操作地址
+	 */
 	function _requireValidRecipient(address _recipient) internal view {
 		require(
 			_recipient != address(0) && _recipient != address(this),
@@ -176,10 +239,16 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 		);
 	}
 
+	/*
+	 * @note 判断调用者是否为合法的借贷者操作合约
+	 */
 	function _requireCallerIsBorrowerOperations() internal view {
 		require(validBorrowerOps[msg.sender], "DCHFToken: Caller is not BorrowerOperations");
 	}
 
+	/*
+	 * @note 判断调用者是否为合法的借贷者操作合约或合法的trove管理合约或Stability Pool
+	 */
 	function _requireCallerIsBOorTroveMorSP() internal view {
 		require(
 			validBorrowerOps[msg.sender] ||
@@ -189,6 +258,9 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 		);
 	}
 
+	/*
+	 * @note 判断调用者是否为Stability Pool
+	 */
 	function _requireCallerIsStabilityPool() internal view {
 		require(
 			stabilityPoolManager.isStabilityPool(msg.sender),
@@ -196,6 +268,9 @@ contract DCHFToken is CheckContract, IDCHFToken, Ownable {
 		);
 	}
 
+	/*
+	 * @note 判断调用者是否为合法的trove管理合约或Stability Pool
+	 */
 	function _requireCallerIsTroveMorSP() internal view {
 		require(
 			validTroveManagers[msg.sender] || stabilityPoolManager.isStabilityPool(msg.sender),
